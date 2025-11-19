@@ -1,6 +1,8 @@
 plugins {
-    id("com.android.application") version "8.2.0"
-    id("org.jetbrains.kotlin.android") version "1.9.0"
+    // Updated to 8.2.2 (More stable)
+    id("com.android.application") version "8.2.2"
+    // Updated to 1.9.22 (Fixes the crash you saw)
+    id("org.jetbrains.kotlin.android") version "1.9.22"
 }
 
 android {
@@ -24,6 +26,15 @@ android {
             )
             signingConfig = signingConfigs.getByName("debug")
         }
+    }
+    
+    // Add Java 17 compatibility to ensure smooth building
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_1_10
+        targetCompatibility = JavaVersion.VERSION_1_10
+    }
+    kotlinOptions {
+        jvmTarget = "1.8"
     }
 }
 
