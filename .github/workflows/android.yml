@@ -22,9 +22,6 @@ jobs:
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3
 
-    - name: Create settings.gradle
-      run: echo "include ':app'" > settings.gradle
-
     - name: Grant execute permission for gradlew
       run: gradle wrapper
 
