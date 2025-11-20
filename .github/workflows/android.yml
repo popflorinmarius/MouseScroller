@@ -22,8 +22,9 @@ jobs:
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3
 
+    # THIS IS THE FIX: We force Gradle 8.6 instead of letting it pick 9.2
     - name: Grant execute permission for gradlew
-      run: gradle wrapper
+      run: gradle wrapper --gradle-version 8.6
 
     - name: Build with Gradle
       run: ./gradlew assembleDebug
