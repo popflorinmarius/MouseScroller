@@ -17,7 +17,6 @@ import android.widget.FrameLayout
 import android.widget.Toast
 import kotlin.math.abs
 
-// --- 1. The Main Activity (Permission Setup) ---
 class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -32,17 +31,15 @@ class MainActivity : Activity() {
             val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, 
                 Uri.parse("package:$packageName"))
             startActivity(intent)
-            Toast.makeText(this, "Please allow 'Display over other apps'", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Allow 'Display over other apps'", Toast.LENGTH_LONG).show()
             return
         }
-        
         val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
         startActivity(intent)
-        Toast.makeText(this, "Find 'Mouse Scroller' and turn it ON", Toast.LENGTH_LONG).show()
+        Toast.makeText(this, "Turn ON 'Mouse Scroller'", Toast.LENGTH_LONG).show()
     }
 }
 
-// --- 2. The Core Service Logic ---
 class MouseAccessibilityService : AccessibilityService() {
 
     private lateinit var windowManager: WindowManager
@@ -50,7 +47,6 @@ class MouseAccessibilityService : AccessibilityService() {
     private var touchOverlay: View? = null
     private var isScrollModeActive = false
     
-    // Screen dimensions for calculating center zoom
     private var screenWidth = 0
     private var screenHeight = 0
 
@@ -62,10 +58,23 @@ class MouseAccessibilityService : AccessibilityService() {
         createToggleButton()
     }
 
+    // --- SAFETY FEATURE: VOLUME DOWN KILLS OVERLAY ---
+    override fun onKeyEvent(event: KeyEvent): Boolean {
+        if (isScrollModeActive && event.keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+            disableScrollMode()
+            Toast.makeText(this, "Emergency Stop Activated", Toast.LENGTH_SHORT).show()
+            return true
+        }
+        return super.onKeyEvent(event)
+    }
+
     private fun createToggleButton() {
+        if (toggleButton != null) return
+        
         toggleButton = Button(this).apply {
             text = "🖱 Mode"
-            alpha = 0.8f
+            setBackgroundColor(0xFF4444AA.toInt()) // Blue color
+            setTextColor(0xFFFFFFFF.toInt())
             setOnClickListener {
                 if (isScrollModeActive) disableScrollMode() else enableScrollMode()
             }
@@ -91,15 +100,20 @@ class MouseAccessibilityService : AccessibilityService() {
     private fun enableScrollMode() {
         if (isScrollModeActive) return
         
+        // 1. Remove button first (so we can add it back ON TOP later)
+        if (toggleButton != null) windowManager.removeView(toggleButton)
+
+        // 2. Create the Trap Overlay
         touchOverlay = FrameLayout(this).apply {
-            setBackgroundColor(0x05000000) // Very faint grey to indicate active
+            // Slight RED tint so you know it's blocking touch
+            setBackgroundColor(0x20FF0000) 
             setOnTouchListener { _, event ->
                 handleMouseInput(event)
-                true 
+                true // We Consume the touch. Normal touch WILL NOT work here.
             }
         }
 
-        val params = LayoutParams(
+        val overlayParams = LayoutParams(
             LayoutParams.MATCH_PARENT,
             LayoutParams.MATCH_PARENT,
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) 
@@ -109,29 +123,53 @@ class MouseAccessibilityService : AccessibilityService() {
             PixelFormat.TRANSLUCENT
         )
 
-        windowManager.addView(touchOverlay, params)
+        windowManager.addView(touchOverlay, overlayParams)
         isScrollModeActive = true
-        (toggleButton as? Button)?.text = "❌ Stop"
+
+        // 3. Re-add Button (Now it is on TOP of the overlay)
+        (toggleButton as? Button)?.text = "❌ STOP"
+        (toggleButton as? Button)?.setBackgroundColor(0xFFAA0000.toInt()) // Red
+        
+        // Add button back
+        val btnParams = LayoutParams(
+            LayoutParams.WRAP_CONTENT,
+            LayoutParams.WRAP_CONTENT,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) 
+                LayoutParams.TYPE_APPLICATION_OVERLAY 
+            else LayoutParams.TYPE_PHONE,
+            LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = 0
+            y = 200
+        }
+        windowManager.addView(toggleButton, btnParams)
     }
 
     private fun disableScrollMode() {
         if (!isScrollModeActive) return
+        
+        // Remove everything
         if (touchOverlay != null) {
             windowManager.removeView(touchOverlay)
             touchOverlay = null
         }
+        if (toggleButton != null) {
+            windowManager.removeView(toggleButton)
+            toggleButton = null
+        }
+        
         isScrollModeActive = false
-        (toggleButton as? Button)?.text = "🖱 Mode"
+        // Re-create just the button
+        createToggleButton()
     }
 
     // --- Input Handling ---
-
     private var startX = 0f
     private var startY = 0f
     private var lastDispatchTime = 0L
-    
-    // Threshold to prevent jitter
-    private val MOVEMENT_THRESHOLD = 20 
+    private val MOVEMENT_THRESHOLD = 10 // Made more sensitive
 
     private fun handleMouseInput(event: MotionEvent) {
         when (event.actionMasked) {
@@ -142,31 +180,21 @@ class MouseAccessibilityService : AccessibilityService() {
             MotionEvent.ACTION_MOVE -> {
                 val currentX = event.rawX
                 val currentY = event.rawY
-                
                 val dx = currentX - startX
                 val dy = currentY - startY
 
-                // Throttle: Only process every 100ms to allow gesture to complete
-                if (System.currentTimeMillis() - lastDispatchTime > 100) {
-                    
-                    // Check if Right Mouse Button is pressed
-                    // BUTTON_SECONDARY is usually the right mouse button
+                if (System.currentTimeMillis() - lastDispatchTime > 50) {
                     val isRightClick = (event.buttonState and MotionEvent.BUTTON_SECONDARY) != 0
                     
                     if (isRightClick) {
-                        // --- ZOOM LOGIC ---
                         if (abs(dy) > MOVEMENT_THRESHOLD) {
-                            // Negative dy means moving UP (Zoom In)
-                            // Positive dy means moving DOWN (Zoom Out)
                             dispatchZoom(zoomIn = (dy < 0))
-                            
-                            // Reset origin to allow continuous zooming
                             startX = currentX
                             startY = currentY
                             lastDispatchTime = System.currentTimeMillis()
                         }
                     } else {
-                        // --- SCROLL LOGIC (Left Click / Default) ---
+                        // Regular Scroll
                         if (abs(dx) > MOVEMENT_THRESHOLD || abs(dy) > MOVEMENT_THRESHOLD) {
                             dispatchSwipe(startX, startY, currentX, currentY)
                             startX = currentX
@@ -179,56 +207,44 @@ class MouseAccessibilityService : AccessibilityService() {
         }
     }
 
-    // existing scroll logic
     private fun dispatchSwipe(x1: Float, y1: Float, x2: Float, y2: Float) {
+        // Clamp coordinates to be on screen (prevents crashes)
+        val safeX1 = x1.coerceIn(0f, screenWidth.toFloat())
+        val safeY1 = y1.coerceIn(0f, screenHeight.toFloat())
+        val safeX2 = x2.coerceIn(0f, screenWidth.toFloat())
+        val safeY2 = y2.coerceIn(0f, screenHeight.toFloat())
+
+        if (abs(safeX1 - safeX2) < 5 && abs(safeY1 - safeY2) < 5) return
+
         val path = Path()
-        path.moveTo(x1, y1)
-        path.lineTo(x2, y2)
-        val stroke = GestureDescription.StrokeDescription(path, 0, 100)
+        path.moveTo(safeX1, safeY1)
+        path.lineTo(safeX2, safeY2)
+        
         val builder = GestureDescription.Builder()
-        builder.addStroke(stroke)
+        builder.addStroke(GestureDescription.StrokeDescription(path, 0, 50))
         dispatchGesture(builder.build(), null, null)
     }
 
-    // New Zoom Logic
     private fun dispatchZoom(zoomIn: Boolean) {
-        val centerX = screenWidth / 2f
-        val centerY = screenHeight / 2f
-        val gap = 150f // Start distance from center
-        val travel = 400f // How far the fingers move
+        val cx = screenWidth / 2f
+        val cy = screenHeight / 2f
+        val gap = 200f
+        val travel = 300f
 
-        // Path 1: Top Finger
         val path1 = Path()
-        // Path 2: Bottom Finger
         val path2 = Path()
 
         if (zoomIn) {
-            // Pinch OPEN (Fingers start close, move out)
-            // Finger 1: Starts slightly above center, moves WAY up
-            path1.moveTo(centerX, centerY - gap)
-            path1.lineTo(centerX, centerY - gap - travel)
-
-            // Finger 2: Starts slightly below center, moves WAY down
-            path2.moveTo(centerX, centerY + gap)
-            path2.lineTo(centerX, centerY + gap + travel)
+            path1.moveTo(cx, cy - gap); path1.lineTo(cx, cy - gap - travel)
+            path2.moveTo(cx, cy + gap); path2.lineTo(cx, cy + gap + travel)
         } else {
-            // Pinch CLOSED (Fingers start far apart, move to center)
-            // Finger 1: Starts far up, moves to center
-            path1.moveTo(centerX, centerY - gap - travel)
-            path1.lineTo(centerX, centerY - gap)
-
-            // Finger 2: Starts far down, moves to center
-            path2.moveTo(centerX, centerY + gap + travel)
-            path2.lineTo(centerX, centerY + gap)
+            path1.moveTo(cx, cy - gap - travel); path1.lineTo(cx, cy - gap)
+            path2.moveTo(cx, cy + gap + travel); path2.lineTo(cx, cy + gap)
         }
 
-        val stroke1 = GestureDescription.StrokeDescription(path1, 0, 200)
-        val stroke2 = GestureDescription.StrokeDescription(path2, 0, 200)
-
         val builder = GestureDescription.Builder()
-        builder.addStroke(stroke1)
-        builder.addStroke(stroke2) // Adding a second stroke makes it multi-touch
-
+        builder.addStroke(GestureDescription.StrokeDescription(path1, 0, 200))
+        builder.addStroke(GestureDescription.StrokeDescription(path2, 0, 200))
         dispatchGesture(builder.build(), null, null)
     }
 
