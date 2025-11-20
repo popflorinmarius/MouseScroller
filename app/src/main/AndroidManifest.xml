@@ -1,18 +1,14 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Required to draw the transparent interception layer -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-    
-    <!-- Required to inject touch gestures -->
     <uses-permission android:name="android.permission.accessibilityservice.TOUCH_INTERACTION" />
 
     <application
         android:allowBackup="true"
-        android:icon="@mipmap/ic_launcher"
+        android:icon="@android:drawable/sym_def_app_icon"
         android:label="Mouse Scroller"
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
 
-        <!-- Main Activity to ask for permissions -->
         <activity android:name=".MainActivity"
             android:exported="true">
             <intent-filter>
@@ -21,7 +17,6 @@
             </intent-filter>
         </activity>
 
-        <!-- The Accessibility Service Logic -->
         <service
             android:name=".MouseAccessibilityService"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
